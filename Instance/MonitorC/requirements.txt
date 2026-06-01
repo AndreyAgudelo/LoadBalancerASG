@@ -1,0 +1,5 @@
+grpcio==1.62.1
+grpcio-tools==1.62.1
+protobuf==4.25.3
+python-dotenv==1.0.1
+psutil==5.9.8

@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  load-balancer:
+    build: .
+    container_name: load_balancer_controller
+    env_file: .env
+    ports:
+      - "50051:50051"
+    restart: unless-stopped
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}

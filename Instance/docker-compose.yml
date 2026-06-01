@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  # Throttling logic
+  cpu-throttler:
+    build:
+      context: ./App
+    container_name: throttler
+    privileged: true
+    restart: always
+    volumes:
+      - /tmp/throttler/global_throttle:/tmp/global_throttle
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Load monitoring client
+  monitor-client:
+    build:
+      context: ./MonitorC
+    container_name: monitor_client
+    env_file:
+      - ./MonitorC/.env
+    restart: always
+    depends_on:
+      - cpu-throttler
