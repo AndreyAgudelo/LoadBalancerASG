@@ -6,14 +6,39 @@ import logging
 import socket
 import psutil
 
-# ... (imports and class remain same)
+import monitor_pb2
+import monitor_pb2_grpc
+
+class MonitorClient:
+    def __init__(self, server_addr, client_id=None):
+        self.server_addr = server_addr
+        self.client_id = client_id or socket.gethostname()
+        self.channel = grpc.insecure_channel(server_addr)
+        self.stub = monitor_pb2_grpc.LoadMonitorStub(self.channel)
+
+    def register(self):
+        try:
+            response = self.stub.RegisterClient(monitor_pb2.RegisterRequest(
+                client_id=self.client_id,
+                ip_address=socket.gethostbyname(socket.gethostname())
+            ))
+            return response.success
+        except Exception as e:
+            logging.error(f"Registration failed: {e}")
+            return False
 
     def send_load(self, load_value):
-        # ... (method remains same)
+        try:
+            response = self.stub.ReportLoad(monitor_pb2.LoadReport(
+                client_id=self.client_id,
+                load_value=load_value
+            ))
+            return response.acknowledged
+        except Exception as e:
+            logging.error(f"Load report failed: {e}")
+            return False
 
 def get_actual_cpu_load():
-    # Obtiene el uso real de CPU en el último segundo
-    # Retorna valor entre 0.0 y 1.0
     return psutil.cpu_percent(interval=1.0) / 100.0
 
 def main():
@@ -25,7 +50,6 @@ def main():
     logging.basicConfig(level=logging.INFO)
     client = MonitorClient(server_addr, client_id=client_id)
 
-    # Auto-registration loop
     registered = False
     while not registered:
         logging.info("Attempting to register...")
@@ -33,12 +57,9 @@ def main():
         if not registered:
             time.sleep(5)
 
-    # Reporting loop
     logging.info("Starting load reporting loop...")
     while True:
-        # LEER CARGA REAL DE CPU
         current_load = get_actual_cpu_load()
-        
         success = client.send_load(current_load)
         if success:
             logging.info(f"Sent actual CPU load: {current_load:.2f}")

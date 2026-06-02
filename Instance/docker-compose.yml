@@ -1,8 +1,8 @@
 version: '3.8'
 
 services:
-  # Throttling logic
-  cpu-throttler:
+  app:
+    image: instance-app
     build:
       context: ./App
     container_name: throttler
@@ -16,8 +16,8 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Load monitoring client
-  monitor-client:
+  monitor:
+    image: instance-monitor
     build:
       context: ./MonitorC
     container_name: monitor_client
@@ -25,4 +25,4 @@ services:
       - ./MonitorC/.env
     restart: always
     depends_on:
-      - cpu-throttler
+      - app
