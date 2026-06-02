@@ -15,21 +15,33 @@ class AutoScaler:
         self.max_instances = int(os.getenv("MAX_INSTANCES", "10"))
         self.check_interval = int(os.getenv("CHECK_INTERVAL", "30"))
 
+    def get_aws_instance_count(self):
+        try:
+            response = self.ec2.describe_instances(
+                Filters=[
+                    {'Name': 'instance-state-name', 'Values': ['running', 'pending']},
+                    {'Name': 'tag:Role', 'Values': ['Worker']}
+                ]
+            )
+            count = sum(len(r['Instances']) for r in response['Reservations'])
+            return count
+        except Exception as e:
+            logging.error(f"Error checking AWS instances: {e}")
+            return len(self.clients)
+
     def get_average_load(self):
         now = time.time()
-        timeout = 25 # Segundos antes de considerar al cliente como muerto
+        timeout = 25 
         
-        # Limpieza de zombies y filtrado de reportes frescos
         active_loads = []
         dead_clients = []
         
-        for cid, data in self.clients.items():
+        for cid, data in list(self.clients.items()):
             if now - data.get("last_seen", 0) > timeout:
                 dead_clients.append(cid)
             else:
                 active_loads.append(data["last_load"])
         
-        # Eliminar de la memoria compartida
         for cid in dead_clients:
             logging.info(f"Removing dead client: {cid}")
             del self.clients[cid]
@@ -39,7 +51,7 @@ class AutoScaler:
         return sum(active_loads) / len(active_loads)
 
     def scale_up(self):
-        logging.info("Average load > 80%. Scaling up...")
+        logging.info("Average load > Threshold or Min Instances not met. Scaling up...")
         try:
             self.ec2.run_instances(
                 LaunchTemplate={'LaunchTemplateId': self.launch_template_id},
@@ -51,9 +63,7 @@ class AutoScaler:
             logging.error(f"Failed to scale up: {e}")
 
     def scale_down(self):
-        logging.info("Average load < 20%. Scaling down...")
-        # Lógica para terminar la instancia más joven o una específica
-        # Por simplicidad, buscamos instancias con el tag de nuestro sistema
+        logging.info("Average load < Threshold. Scaling down...")
         try:
             response = self.ec2.describe_instances(
                 Filters=[
@@ -63,6 +73,7 @@ class AutoScaler:
             )
             instances = [i for r in response['Reservations'] for i in r['Instances']]
             if len(instances) > self.min_instances:
+                # Ordenar por tiempo de lanzamiento para borrar la más antigua o nueva según prefieras
                 target_id = instances[0]['InstanceId']
                 self.ec2.terminate_instances(InstanceIds=[target_id])
                 logging.info(f"Instance {target_id} terminated.")
@@ -73,12 +84,23 @@ class AutoScaler:
         logging.info("ControllerASG started.")
         while True:
             avg_load = self.get_average_load()
-            num_instances = len(self.clients)
-            logging.info(f"Status: Avg Load: {avg_load:.2f}, Instances: {num_instances}")
+            connected_instances = len(self.clients)
+            actual_aws_instances = self.get_aws_instance_count()
+            
+            logging.info(f"Status: Avg Load: {avg_load:.2f}, Connected: {connected_instances}, AWS Total: {actual_aws_instances}")
 
-            if avg_load > self.upper_threshold and num_instances < self.max_instances:
-                self.scale_up()
-            elif avg_load < self.lower_threshold and num_instances > self.min_instances:
-                self.scale_down()
+            # LÓGICA DE COOLDOWN / ESTABILIZACIÓN
+            # Solo permitimos un nuevo cambio si el número de clientes gRPC coincide con el número de instancias en AWS.
+            # Esto significa que no hay instancias "en camino" (Pending) ni instancias "muriendo" (Terminating).
+            
+            if connected_instances != actual_aws_instances:
+                logging.info(f"Stabilizing... Waiting for AWS ({actual_aws_instances}) to match gRPC ({connected_instances})")
+            else:
+                if (avg_load > self.upper_threshold and actual_aws_instances < self.max_instances) or (actual_aws_instances < self.min_instances):
+                    self.scale_up()
+                    time.sleep(10) # Pequeña pausa para que AWS registre el estado 'pending'
+                elif avg_load < self.lower_threshold and actual_aws_instances > self.min_instances:
+                    self.scale_down()
+                    time.sleep(10)
 
-            time.sleep(30) # Intervalo de chequeo
+            time.sleep(self.check_interval)
