@@ -1,12 +1,12 @@
-FROM amazonlinux:2023
+FROM ubuntu:22.04
 
-RUN dnf update -y && dnf install -y \
+RUN apt-get update && apt-get install -y \
     stress-ng \
     bc \
-    procps-ng \
+    procps \
     coreutils \
     sed \
-    && dnf clean all
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY throttle.sh .
