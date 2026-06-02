@@ -39,7 +39,18 @@ class MonitorClient:
             return False
 
 def get_actual_cpu_load():
-    return psutil.cpu_percent(interval=1.0) / 100.0
+    # Obtiene el porcentaje de uso por cada núcleo individual
+    per_cpu_loads = psutil.cpu_percent(interval=1.0, percpu=True)
+    
+    if len(per_cpu_loads) > 1:
+        # Excluir el Core 0 y promediar el resto (1..N)
+        active_cores_load = per_cpu_loads[1:]
+        avg_load = sum(active_cores_load) / len(active_cores_load)
+    else:
+        # Fallback para instancias de un solo núcleo
+        avg_load = per_cpu_loads[0]
+        
+    return avg_load / 100.0
 
 def main():
     server_host = os.getenv("MONITOR_SERVER_HOST", "localhost")
